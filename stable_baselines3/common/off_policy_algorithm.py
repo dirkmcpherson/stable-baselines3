@@ -383,7 +383,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         raise NotImplementedError()
 
     def _sample_action(
-        self, learning_starts: int, action_noise: Optional[ActionNoise] = None
+        self, learning_starts: int, action_noise: Optional[ActionNoise] = None, obs: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Sample an action according to the exploration policy.
@@ -407,7 +407,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             # Note: when using continuous actions,
             # we assume that the policy uses tanh to scale the action
             # We use non-deterministic action in the case of SAC, for TD3, it does not matter
-            unscaled_action, _ = self.predict(self._last_obs, deterministic=False)
+            if not obs:
+                unscaled_action, _ = self.predict(self._last_obs, deterministic=False)
+            else: #jss
+                unscaled_action, _ = self.predict(obs, deterministic=False)
 
         # Rescale the action from [low, high] to [-1, 1]
         if isinstance(self.action_space, gym.spaces.Box):
@@ -465,6 +468,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         reward: np.ndarray,
         done: np.ndarray,
         infos: List[Dict[str, Any]],
+        prev_obs: np.ndarray,
     ) -> None:
         """
         Store transition in the replay buffer.
@@ -499,7 +503,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             next_obs = new_obs_
 
         replay_buffer.add(
-            self._last_original_obs,
+            prev_obs,
+            # self._last_original_obs,
             next_obs,
             buffer_action,
             reward_,
@@ -564,11 +569,23 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     # Sample a new noise matrix
                     self.actor.reset_noise()
 
+                # get previous observations
+                prev_observations = [env.envs[0].env.get_observation_from_agent(i) for i in range(self.n_agents)]
+
                 # Select action randomly or according to policy
-                action, buffer_action = self._sample_action(learning_starts, action_noise)
+                actions = []
+                if (self.n_agents == 1):
+                    action, buffer_action = self._sample_action(learning_starts, action_noise)
+                    actions.append(action)
+                else:
+                    for i in range(self.n_agents):
+                        action, buffer_action = self._sample_action(learning_starts, action_noise, obs=prev_observations[i])
+                        actions.append(action)
+
+
 
                 # Rescale and perform action
-                new_obs, reward, done, infos = env.step(action)
+                new_obs, reward, done, infos = env.step(actions)
 
                 self.num_timesteps += 1
                 episode_timesteps += 1
@@ -589,11 +606,11 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 if (self.n_agents == 1):
                     if any([np.isnan(buffer_action).any(), np.isnan(new_obs).any(), np.isnan(reward).any(), np.isnan(done).any()]):
                         embed()
-                    self._store_transition(replay_buffer, buffer_action, new_obs, reward, done, infos)
+                    self._store_transition(replay_buffer, buffer_action, new_obs, reward, done, infos, prev_obs=prev_observations[0])
                 else: # JSS
                     for i in range(self.n_agents):
                         r = infos[0]["agent_%d_reward" % i]
-                        obs = observations[i]
+                        obs = prev_observations[i]
                         buffer_action = actions[i]
                         new_obs = env.envs[0].env.get_observation_from_agent(i)
                         self._store_transition(replay_buffer, buffer_action, new_obs, r, done, infos, prev_obs=obs)

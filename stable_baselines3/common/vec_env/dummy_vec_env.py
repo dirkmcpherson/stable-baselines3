@@ -8,6 +8,7 @@ import numpy as np
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv, VecEnvIndices, VecEnvObs, VecEnvStepReturn
 from stable_baselines3.common.vec_env.util import copy_obs_dict, dict_to_obs, obs_space_info
 
+from IPython import embed
 
 class DummyVecEnv(VecEnv):
     """
@@ -39,15 +40,45 @@ class DummyVecEnv(VecEnv):
         self.actions = actions
 
     def step_wait(self) -> VecEnvStepReturn:
-        for env_idx in range(self.num_envs):
-            obs, self.buf_rews[env_idx], self.buf_dones[env_idx], self.buf_infos[env_idx] = self.envs[env_idx].step(
-                self.actions[env_idx]
-            )
-            if self.buf_dones[env_idx]:
-                # save final observation where user can get it, then reset
-                self.buf_infos[env_idx]["terminal_observation"] = obs
-                obs = self.envs[env_idx].reset()
-            self._save_obs(env_idx, obs)
+        if (self.num_envs > 1):
+            raise NotImplementedError # JSS
+        # for env_idx in range(self.num_envs):
+        #     obs, self.buf_rews[env_idx], self.buf_dones[env_idx], self.buf_infos[env_idx] = self.envs[env_idx].step(
+        #         self.actions[env_idx]
+        #     )
+        #     if self.buf_dones[env_idx]:
+        #         # save final observation where user can get it, then reset
+        #         self.buf_infos[env_idx]["terminal_observation"] = obs
+        #         obs = self.envs[env_idx].reset()
+        #     self._save_obs(env_idx, obs)
+        env_idx = 0
+        obs, self.buf_rews[env_idx], self.buf_dones[env_idx], self.buf_infos[env_idx] = self.envs[env_idx].step(self.actions)
+        # self.buf_infos[env_idx]["r_hri"] = 0
+        # self.buf_infos[env_idx]["r_task"] = 0
+        if self.buf_dones[env_idx]:
+            # save final observation where user can get it, then reset
+            self.buf_infos[env_idx]["terminal_observation"] = obs
+            for idx, r in enumerate(self.envs[env_idx].learning_robots):
+                self.buf_infos[env_idx]["agent_%d_reward" % idx] = r.reward
+
+                # if (r.hri_mode):
+                #     self.buf_infos[env_idx]["r_hri"] += r.reward
+                # else:
+                #     self.buf_infos[env_idx]["r_task"] += r.reward
+
+            obs = self.envs[env_idx].reset()
+        else:
+            for idx, r in enumerate(self.envs[env_idx].learning_robots):
+                self.buf_infos[env_idx]["agent_%d_reward" % idx] = r.reward
+                # try:
+                #     if (r.hri_mode):
+                #         self.buf_infos[env_idx]["r_hri"] += r.reward
+                #     else:
+                #         self.buf_infos[env_idx]["r_task"] += r.reward
+                # except :
+                #     embed()
+    
+        self._save_obs(env_idx, obs)
         return (self._obs_from_buf(), np.copy(self.buf_rews), np.copy(self.buf_dones), deepcopy(self.buf_infos))
 
     def seed(self, seed: Optional[int] = None) -> List[Union[None, int]]:

@@ -11,6 +11,8 @@ import gym
 import numpy as np
 import torch as th
 
+from IPython import embed
+
 from stable_baselines3.common import utils
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList, ConvertCallback, EvalCallback
 from stable_baselines3.common.env_util import is_wrapped
