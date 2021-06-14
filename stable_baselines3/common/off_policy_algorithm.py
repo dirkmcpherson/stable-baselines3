@@ -383,7 +383,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         raise NotImplementedError()
 
     def _sample_action(
-        self, learning_starts: int, action_noise: Optional[ActionNoise] = None, obs: Optional[np.ndarray] = None
+        self, learning_starts: int, action_noise: Optional[ActionNoise] = None, obs: Optional[np.ndarray] = []
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Sample an action according to the exploration policy.
@@ -407,7 +407,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             # Note: when using continuous actions,
             # we assume that the policy uses tanh to scale the action
             # We use non-deterministic action in the case of SAC, for TD3, it does not matter
-            if not obs:
+            if len(obs) == 0:
                 unscaled_action, _ = self.predict(self._last_obs, deterministic=False)
             else: #jss
                 unscaled_action, _ = self.predict(obs, deterministic=False)
@@ -570,7 +570,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     self.actor.reset_noise()
 
                 # get previous observations
-                prev_observations = [env.envs[0].env.get_observation_from_agent(i) for i in range(self.n_agents)]
+                prev_observations = [env.envs[0].env.get_observation_from_agent(i).reshape(1, 1, -1) for i in range(self.n_agents)]
 
                 # Select action randomly or according to policy
                 actions = []
