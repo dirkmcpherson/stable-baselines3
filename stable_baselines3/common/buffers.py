@@ -150,6 +150,100 @@ class BaseBuffer(ABC):
         return reward
 
 
+class ClassifierBuffer(BaseBuffer):
+    # JSS
+    """
+    Classifier buffer used for classifying trajectories
+
+    :param buffer_size: Max number of element in the buffer
+    :param observation_space: Observation space
+    :param classification_space: Classification space
+    :param device:
+    :param n_envs: Number of parallel environments
+    :param optimize_memory_usage: Enable a memory efficient variant
+        of the replay buffer which reduces by almost a factor two the memory used,
+        at a cost of more complexity.
+        See https://github.com/DLR-RM/stable-baselines3/issues/37#issuecomment-637501195
+        and https://github.com/DLR-RM/stable-baselines3/pull/28#issuecomment-637559274
+    """ 
+
+    def __init__(
+        self,
+        buffer_size: int,
+        observation_space: spaces.Space,
+        classification_space: spaces.Space,
+        device: Union[th.device, str] = "cpu",
+        n_envs: int = 1,
+        optimize_memory_usage: bool = False,
+    ):
+        super(ClassifierBuffer, self).__init__(buffer_size, observation_space, classification_space, device, n_envs=n_envs)
+
+        assert n_envs == 1, "Classification buffer only supports single environment for now"
+
+        # Check that the replay buffer can fit into the memory
+        if psutil is not None:
+            mem_available = psutil.virtual_memory().available
+
+        self.optimize_memory_usage = optimize_memory_usage
+
+        self.observations = np.zeros((self.buffer_size, self.n_envs) + self.obs_shape, dtype=observation_space.dtype)
+        self.classifications = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=classification_space.dtype)
+        self.gt_classifications = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=classification_space.dtype)
+
+        if psutil is not None:
+            total_memory_usage = self.observations.nbytes + self.classifications.nbytes + self.gt_classifications.nbytes
+
+            if total_memory_usage > mem_available:
+                # Convert to GB
+                total_memory_usage /= 1e9
+                mem_available /= 1e9
+                warnings.warn(
+                    "This system does not have apparently enough memory to store the complete "
+                    f"replay buffer {total_memory_usage:.2f}GB > {mem_available:.2f}GB"
+                )
+
+    def add(self, obs: np.ndarray, classification: np.ndarray, gt_classification: np.ndarray) -> None:
+        # Copy to avoid modification by reference
+        self.observations[self.pos] = np.array(obs).copy()
+        self.classifications[self.pos] = np.array(classification).copy()
+        self.gt_classifications[self.pos] = np.array(gt_classification).copy()
+
+        self.pos += 1
+        if self.pos == self.buffer_size:
+            self.full = True
+            self.pos = 0
+
+    def sample(self, batch_size: int, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
+        """
+        Sample elements from the replay buffer.
+        Custom sampling when using memory efficient variant,
+        as we should not sample the element with index `self.pos`
+        See https://github.com/DLR-RM/stable-baselines3/pull/28#issuecomment-637559274
+
+        :param batch_size: Number of element to sample
+        :param env: associated gym VecEnv
+            to normalize the observations/rewards when sampling
+        :return:
+        """
+        if not self.optimize_memory_usage:
+            return super().sample(batch_size=batch_size, env=env)
+        # Do not sample the element with index `self.pos` as the transitions is invalid
+        # (we use only one array to store `obs` and `next_obs`)
+        if self.full:
+            batch_inds = (np.random.randint(1, self.buffer_size, size=batch_size) + self.pos) % self.buffer_size
+        else:
+            batch_inds = np.random.randint(0, self.pos, size=batch_size)
+        return self._get_samples(batch_inds, env=env)
+
+    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
+        data = (
+            self._normalize_obs(self.observations[batch_inds, 0, :], env),
+            self.classifications[batch_inds, 0, :],
+            self.gt_classifications[batch_inds, 0, :]
+        )
+        
+        return ClassificationBufferSamples(*tuple(map(self.to_torch, data)))
+
 class ReplayBuffer(BaseBuffer):
     """
     Replay buffer used in off-policy algorithms like SAC/TD3.

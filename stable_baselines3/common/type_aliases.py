@@ -29,6 +29,11 @@ class RolloutBufferSamples(NamedTuple):
     advantages: th.Tensor
     returns: th.Tensor
 
+class ClassificationBufferSamples(NamedTuple):
+    observations: th.Tensor
+    classifications: th.Tensor
+    gt_classifications: th.Tensor
+
 
 class DictRolloutBufferSamples(RolloutBufferSamples):
     observations: TensorDict

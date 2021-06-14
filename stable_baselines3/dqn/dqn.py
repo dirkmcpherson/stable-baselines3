@@ -78,6 +78,7 @@ class DQN(OffPolicyAlgorithm):
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
         max_grad_norm: float = 10,
+        n_agents: int = 1,
         tensorboard_log: Optional[str] = None,
         create_eval_env: bool = False,
         policy_kwargs: Optional[Dict[str, Any]] = None,
@@ -99,6 +100,7 @@ class DQN(OffPolicyAlgorithm):
             gamma,
             train_freq,
             gradient_steps,
+            n_agents=n_agents,
             action_noise=None,  # No action noise
             replay_buffer_class=replay_buffer_class,
             replay_buffer_kwargs=replay_buffer_kwargs,

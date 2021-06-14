@@ -91,6 +91,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
         policy_kwargs: Dict[str, Any] = None,
+        n_agents: int = 1,
         tensorboard_log: Optional[str] = None,
         verbose: int = 0,
         device: Union[th.device, str] = "auto",
@@ -136,6 +137,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             replay_buffer_kwargs = {}
         self.replay_buffer_kwargs = replay_buffer_kwargs
         self._episode_storage = None
+
+        self.n_agents = n_agents #JSS
 
         # Remove terminations (dones) that are due to time limit
         # see https://github.com/hill-a/stable-baselines/issues/863
@@ -431,8 +434,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         fps = int(self.num_timesteps / (time_elapsed + 1e-8))
         self.logger.record("time/episodes", self._episode_num, exclude="tensorboard")
         if len(self.ep_info_buffer) > 0 and len(self.ep_info_buffer[0]) > 0:
-            self.logger.record("rollout/ep_rew_mean", safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer]))
+            self.logger.record("rollout/ep_rew_mean", safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer])) # / self.n_agents)
             self.logger.record("rollout/ep_len_mean", safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer]))
+            self.logger.record("rollout/ep_hri_rew_mean", safe_mean([ep_info["r_hri"] for ep_info in self.ep_info_buffer])) # / self.n_agents) #JSS
+            self.logger.record("rollout/ep_task_rew_mean", safe_mean([ep_info["r_task"] for ep_info in self.ep_info_buffer])) # / self.n_agents) #JSS
         self.logger.record("time/fps", fps)
         self.logger.record("time/time_elapsed", int(time_elapsed), exclude="tensorboard")
         self.logger.record("time/total timesteps", self.num_timesteps, exclude="tensorboard")
@@ -581,7 +586,17 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 self._update_info_buffer(infos, done)
 
                 # Store data in replay buffer (normalized action and unnormalized observation)
-                self._store_transition(replay_buffer, buffer_action, new_obs, reward, done, infos)
+                if (self.n_agents == 1):
+                    if any([np.isnan(buffer_action).any(), np.isnan(new_obs).any(), np.isnan(reward).any(), np.isnan(done).any()]):
+                        embed()
+                    self._store_transition(replay_buffer, buffer_action, new_obs, reward, done, infos)
+                else: # JSS
+                    for i in range(self.n_agents):
+                        r = infos[0]["agent_%d_reward" % i]
+                        obs = observations[i]
+                        buffer_action = actions[i]
+                        new_obs = env.envs[0].env.get_observation_from_agent(i)
+                        self._store_transition(replay_buffer, buffer_action, new_obs, r, done, infos, prev_obs=obs)
 
                 self._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
 
