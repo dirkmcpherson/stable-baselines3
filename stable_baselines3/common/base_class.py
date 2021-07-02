@@ -89,6 +89,7 @@ class BaseAlgorithm(ABC):
         policy: Type[BasePolicy],
         env: Union[GymEnv, str, None],
         policy_base: Type[BasePolicy],
+        observation_space: Optional[gym.spaces.Space],
         learning_rate: Union[float, Schedule],
         policy_kwargs: Dict[str, Any] = None,
         tensorboard_log: Optional[str] = None,
@@ -179,6 +180,9 @@ class BaseAlgorithm(ABC):
 
             if self.use_sde and not isinstance(self.action_space, gym.spaces.Box):
                 raise ValueError("generalized State-Dependent Exploration (gSDE) can only be used with continuous actions.")
+
+        if observation_space is not None:
+            self.observation_space = observation_space
 
     @staticmethod
     def _wrap_env(env: GymEnv, verbose: int = 0, monitor_wrapper: bool = True) -> VecEnv:
@@ -679,6 +683,7 @@ class BaseAlgorithm(ABC):
         model = cls(  # pytype: disable=not-instantiable,wrong-keyword-args
             policy=data["policy_class"],
             env=env,
+            observation_space=data["observation_space"],
             device=device,
             _init_setup_model=False,  # pytype: disable=not-instantiable,wrong-keyword-args
         )
@@ -774,4 +779,5 @@ class BaseAlgorithm(ABC):
         # Build dict of state_dicts
         params_to_save = self.get_parameters()
 
+        data["observation_space"] = self.observation_space
         save_to_zip_file(path, data=data, params=params_to_save, pytorch_variables=pytorch_variables)

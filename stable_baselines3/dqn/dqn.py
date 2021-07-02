@@ -12,6 +12,9 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import get_linear_fn, is_vectorized_observation, polyak_update
 from stable_baselines3.dqn.policies import DQNPolicy
 
+from IPython import embed
+from Standard_ML_Library.SAC.discrete.discrete_buffer import DiscreteReplayBuffer
+
 
 class DQN(OffPolicyAlgorithm):
     """
@@ -62,6 +65,7 @@ class DQN(OffPolicyAlgorithm):
         self,
         policy: Union[str, Type[DQNPolicy]],
         env: Union[GymEnv, str],
+        observation_space: Optional[gym.spaces.Space],
         learning_rate: Union[float, Schedule] = 1e-4,
         buffer_size: int = 1000000,  # 1e6
         learning_starts: int = 50000,
@@ -92,6 +96,7 @@ class DQN(OffPolicyAlgorithm):
             policy,
             env,
             DQNPolicy,
+            observation_space,
             learning_rate,
             buffer_size,
             learning_starts,
@@ -125,6 +130,8 @@ class DQN(OffPolicyAlgorithm):
         # Linear schedule will be defined in `_setup_model()`
         self.exploration_schedule = None
         self.q_net, self.q_net_target = None, None
+
+        self.memory = DiscreteReplayBuffer(50000, self.observation_space.shape)
 
         if _init_setup_model:
             self._setup_model()
@@ -194,6 +201,51 @@ class DQN(OffPolicyAlgorithm):
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/loss", np.mean(losses))
+
+    def train_with_samples(self):
+        if (self.memory.mem_cntr < self.batch_size):
+            return -100.
+
+        observations, actions, rewards, next_observations, dones, _ = self.memory.sample_buffer(self.batch_size)
+
+        rewards = th.tensor(rewards, dtype=th.float).to(self.device)
+        dones = th.tensor(dones).to(self.device)
+        next_observations = th.tensor(next_observations, dtype=th.float).to(self.device)
+        observations = th.tensor(observations, dtype=th.float).to(self.device)
+        actions = th.tensor(actions, dtype=th.float).to(self.device)
+
+        with th.no_grad():
+            # Compute the next Q-values using the target network
+            next_q_values = self.q_net_target(next_observations)
+            # Follow greedy policy: use the one with the highest value
+            next_q_values, _ = next_q_values.max(dim=1)
+            # Avoid potential broadcast issue
+            # next_q_values = next_q_values.reshape(-1, 1)
+            # 1-step TD target
+            target_q_values = rewards + (th.Tensor(np.ones(len(dones))) - dones.int()) * self.gamma * next_q_values
+            target_q_values = target_q_values.reshape(-1, 1)
+
+        # Get current Q-values estimates
+        current_q_values = self.q_net(observations)
+
+        # Retrieve the q-values for the actions from the replay buffer
+        current_q_values = th.gather(current_q_values, dim=1, index=actions.long())
+
+        # Compute Huber loss (less sensitive to outliers)
+        # embed()
+        loss = F.smooth_l1_loss(current_q_values, target_q_values)
+        # losses.append(loss.item())
+
+        # Optimize the policy
+        self.policy.optimizer.zero_grad()
+        loss.backward()
+        # Clip gradient norm
+        th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+        self.policy.optimizer.step()
+        return loss
+
+    def remember(self, state, action, reward, new_state, done):
+        self.memory.store_transition(state, action, reward, new_state, done)
 
     def predict(
         self,

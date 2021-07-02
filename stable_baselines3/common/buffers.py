@@ -14,6 +14,7 @@ from stable_baselines3.common.type_aliases import (
     RolloutBufferSamples,
 )
 from stable_baselines3.common.vec_env import VecNormalize
+from IPython import embed
 
 try:
     # Check memory used by replay buffer when possible
@@ -341,7 +342,7 @@ class ReplayBuffer(BaseBuffer):
 
         self.pos += 1
         if self.pos == self.buffer_size:
-            self.full = True
+            self.full = True    
             self.pos = 0
 
     def sample(self, batch_size: int, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:

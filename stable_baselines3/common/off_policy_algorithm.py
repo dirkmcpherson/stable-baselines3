@@ -78,6 +78,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         policy: Type[BasePolicy],
         env: Union[GymEnv, str],
         policy_base: Type[BasePolicy],
+        observation_space: Optional[gym.spaces.Space],
         learning_rate: Union[float, Schedule],
         buffer_size: int = 1000000,  # 1e6
         learning_starts: int = 100,
@@ -111,6 +112,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             policy=policy,
             env=env,
             policy_base=policy_base,
+            observation_space=observation_space,
             learning_rate=learning_rate,
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
